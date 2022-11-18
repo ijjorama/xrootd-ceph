@@ -48,26 +48,6 @@ XrdVERSIONINFO(XrdOssGetStorageSystem, XrdCephOss);
 XrdSysError XrdCephEroute(0);
 XrdOucTrace XrdCephTrace(&XrdCephEroute);
 
-/// timestamp output for logging messages
-/*
-    static std::string ts() {
-    std::time_t t = std::time(nullptr);
-    char mbstr[50];
-    std::strftime(mbstr, sizeof(mbstr), "%y%m%d %H:%M:%S ", std::localtime(&t));
-    return std::string(mbstr);
-}
-*/
-
-// log wrapping function to be used by ceph_posix interface
-/*
- *
-char g_logstring[1024];
-static void logwrapper(char *format, va_list argp) {
-  vsnprintf(g_logstring, 1024, format, argp);
-  XrdCephEroute.Say(ts().c_str(), g_logstring);
-}
-*/
-
 static void (*g_logfunc) (char *, ...) = 0;
 
 static void logwrapper(char* format, ...) {
@@ -88,9 +68,6 @@ extern XrdOucName2Name *g_namelib;
 
 ssize_t getNumericAttr(const char* path, const char* attrName, const int maxAttrLen)
 {
-#define MAXSPACELEN 16
-#define POOLSPACEINFO "__spaceinfo__striped"
-#define TOTALSPACEATTR "total_space"
 
   char *attrValue = (char*)malloc(maxAttrLen+1);
   ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
