@@ -44,6 +44,7 @@
 #include <chrono>
 #include <limits>
 #include <pthread.h>
+
 #include "XrdSfs/XrdSfsAio.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
@@ -1242,7 +1243,7 @@ void ceph_posix_freexattrlist(XrdSysXAttr::AList *aPL) {
   }
 }
 
-int ceph_posix_statfs(long long *totalSpace, long long *freeSpace) {
+int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
   logwrapper((char*)"ceph_posix_statfs");
   // get the poolIdx to use
   int cephPoolIdx = getCephPoolIdxAndIncrease();
@@ -1255,10 +1256,46 @@ int ceph_posix_statfs(long long *totalSpace, long long *freeSpace) {
   librados::cluster_stat_t result;
   int rc = cluster->cluster_stat(result);
   if (0 == rc) {
-    *totalSpace = result.kb * 1024;
+    *usedSpace = result.kb * 1024;
     *freeSpace = result.kb_avail * 1024;
   }
   return rc;
+}
+/**
+ * brief: Return the amount of space used in a pool
+ * details: This function
+ *   Obtains the statistics that librados holds on a pool
+ *   Calculates the number of bytes allocated to the pool
+ * params:
+ *   poolName: (in) the name of the pool to query
+ *   usedSpace: (out) the number of bytes used in the pool
+ * return: 
+ *   success or error status
+ *
+ */
+int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
+
+  logwrapper((char*)"ceph_posix_stat_pool");
+  // get the poolIdx to use
+  int cephPoolIdx = getCephPoolIdxAndIncrease();
+  librados::Rados* cluster = checkAndCreateCluster(cephPoolIdx);
+  if (0 == cluster) {
+     return -EINVAL;
+  }
+
+  std::list<std::string> poolNames({poolName});
+  std::map<std::string, librados::pool_stat_t> stat;
+
+  if (cluster->get_pool_stats(poolNames, stat) < 0) {
+
+    return 1; // Should be -EINVAL?
+
+  } else {
+ 
+    *usedSpace = stat[poolName].num_kb * 1024;
+    return 0;
+
+  }
 }
 
 static int ceph_posix_internal_truncate(const CephFile &file, unsigned long long size) {

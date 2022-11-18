@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string>
 #include <fcntl.h>
+#include <set>
 
 #include "XrdCeph/XrdCephPosix.hh"
 #include "XrdOuc/XrdOucEnv.hh"
@@ -48,24 +49,64 @@ XrdSysError XrdCephEroute(0);
 XrdOucTrace XrdCephTrace(&XrdCephEroute);
 
 /// timestamp output for logging messages
-static std::string ts() {
+/*
+    static std::string ts() {
     std::time_t t = std::time(nullptr);
     char mbstr[50];
     std::strftime(mbstr, sizeof(mbstr), "%y%m%d %H:%M:%S ", std::localtime(&t));
     return std::string(mbstr);
 }
+*/
 
 // log wrapping function to be used by ceph_posix interface
+/*
+ *
 char g_logstring[1024];
 static void logwrapper(char *format, va_list argp) {
   vsnprintf(g_logstring, 1024, format, argp);
   XrdCephEroute.Say(ts().c_str(), g_logstring);
 }
+*/
 
+static void (*g_logfunc) (char *, ...) = 0;
+
+static void logwrapper(char* format, ...) {
+  if (0 == g_logfunc) return;
+  va_list arg;
+  va_start(arg, format);
+  (*g_logfunc)(format, arg);
+  va_end(arg);
+}
+
+void ceph_posix_set_logfunc(void (*logfunc) (char *, ...)) {
+  g_logfunc = logwrapper;
+};
 /// pointer to library providing Name2Name interface. 0 be default
 /// populated in case of ceph.namelib entry in the config file
 /// used in XrdCephPosix
 extern XrdOucName2Name *g_namelib;
+
+ssize_t getNumericAttr(const char* path, const char* attrName, const int maxAttrLen)
+{
+#define MAXSPACELEN 16
+#define POOLSPACEINFO "__spaceinfo__striped"
+#define TOTALSPACEATTR "total_space"
+
+  char *attrValue = (char*)malloc(maxAttrLen+1);
+  ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
+
+  if (attrLen <= 0) {
+
+    return attrLen;
+
+  } else {
+
+    attrValue[attrLen] = (char)NULL;
+    char *endPointer;
+    return strtoll(attrValue, &endPointer, 10);
+
+  }
+}
 
 extern "C"
 {
@@ -201,6 +242,8 @@ int XrdCephOss::Stat(const char* path,
                   struct stat* buff,
                   int opts,
                   XrdOucEnv* env) {
+
+  XrdCephEroute.Say("Entering Stat");
   try {
     if (!strcmp(path, "/")) {
       // special case of a stat made by the locate interface
@@ -208,6 +251,7 @@ int XrdCephOss::Stat(const char* path,
       memset(buff, 0, sizeof(*buff));
       buff->st_mode = S_IFDIR | 0700;
       return 0;
+    
     } else {
       return ceph_posix_stat(env, path, buff);
     }
@@ -218,6 +262,8 @@ int XrdCephOss::Stat(const char* path,
 }
 
 int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
+  
+  XrdCephEroute.Say("Entering StatFS");
   XrdOssVSInfo sP;
   int rc = StatVS(&sP, 0, 0);
   if (rc) {
@@ -230,6 +276,8 @@ int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
 }
 
 int XrdCephOss::StatVS(XrdOssVSInfo *sP, const char *sname, int updt) {
+
+  XrdCephEroute.Say("Entering StatVS");
   int rc = ceph_posix_statfs(&(sP->Total), &(sP->Free));
   if (rc) {
     return rc;
@@ -241,6 +289,67 @@ int XrdCephOss::StatVS(XrdOssVSInfo *sP, const char *sname, int updt) {
   return XrdOssOK;
 }
 
+int formatStatLSResponse(char *buff, int &blen, 
+const char* cgroup, long long totalSpace, long long usedSpace, long long freeSpace, long long quota, long long maxFreeChunk)
+{
+  return snprintf(buff, blen, "oss.cgroup=%s&oss.space=%lld&oss.free=%lld&oss.maxf=%lld&oss.used=%lld&oss.quota=%lld",
+                                     cgroup,       totalSpace,    freeSpace,    maxFreeChunk, usedSpace,    quota);
+}
+int authorizePool(const char *pool)
+{
+
+  std::set<std::string> allowablePools({"alice:", "dteam:"});
+  return allowablePools.find(pool) != allowablePools.end(); 
+
+}
+const char *createAttrPath(const char *pool, const char *attrName) 
+{
+
+  return (std::string(pool) + std::string(attrName)).c_str();
+
+}
+const char *trimLast(const char *in)
+{
+  std::string inStr(in);
+  return inStr.erase(inStr.length()-1).c_str();
+
+}
+
+int XrdCephOss::StatLS(XrdOucEnv &env, const char *pool, char *buff, int &blen)
+{
+
+  if (!authorizePool(pool)) {
+    return -EPERM;
+  }
+
+  const char *newPool = trimLast(pool); // Remove trailing colon ':' for lib_rados calls to follow
+  long long usedSpace, totalSpace, freeSpace;
+
+  if (ceph_posix_stat_pool(newPool, &usedSpace) != 0) {
+      return -EINVAL;
+  }
+  
+  const char *spaceInfoPath = createAttrPath(pool, (const char *)"__spaceinfo__");
+
+  totalSpace = getNumericAttr(spaceInfoPath, "total_space", 24);
+  if (totalSpace < 0) {
+    XrdCephEroute.Say("Could not get totalSpace");
+    return -EINVAL;
+  }
+
+  freeSpace = totalSpace - usedSpace;
+  blen = formatStatLSResponse(buff, blen, 
+    "default",  /* "oss.cgroup" */ 
+    totalSpace, /* "oss.space"  */
+    usedSpace,  /* "oss.used"   */
+    freeSpace,  /* "oss.free"   */
+    totalSpace, /* "oss.quota"  */
+    freeSpace   /* "oss.maxf"   */);
+
+  return XrdOssOK;
+
+}
+ 
 int XrdCephOss::Truncate (const char* path,
                           unsigned long long size,
                           XrdOucEnv* env) {

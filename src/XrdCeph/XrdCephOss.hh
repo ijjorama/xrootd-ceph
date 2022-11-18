@@ -66,6 +66,8 @@ public:
   virtual int     Stat(const char *, struct stat *, int opts=0, XrdOucEnv *eP=0);
   virtual int     StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP=0);
   virtual int     StatVS(XrdOssVSInfo *sP, const char *sname=0, int updt=0);
+  virtual int     StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen);
+
   virtual int     Truncate(const char *, unsigned long long, XrdOucEnv *eP=0);
   virtual int     Unlink(const char *path, int Opts=0, XrdOucEnv *eP=0);
   virtual XrdOssDF *newDir(const char *tident);
