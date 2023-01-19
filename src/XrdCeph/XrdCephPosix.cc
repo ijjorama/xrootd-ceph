@@ -49,6 +49,7 @@
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
 #include "XrdSys/XrdSysPlatform.hh"
+#include <XrdOss/XrdOss.hh>
 
 #include "XrdCeph/XrdCephPosix.hh"
 
@@ -1007,7 +1008,7 @@ ssize_t ceph_aio_read(int fd, XrdSfsAio *aiop, AioCB *cb) {
 int ceph_posix_fstat(int fd, struct stat *buf) {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
-    logwrapper((char*)"ceph_stat: fd %d", fd);
+    logwrapper((char*)__FUNCTION__,": fd %d", fd);
     // minimal stat : only size and times are filled
     // atime, mtime and ctime are set all to the same value
     // mode is set arbitrarily to 0666 | S_IFREG
@@ -1033,7 +1034,7 @@ int ceph_posix_fstat(int fd, struct stat *buf) {
 }
 
 int ceph_posix_stat(XrdOucEnv* env, const char *pathname, struct stat *buf) {
-  logwrapper((char*)"ceph_stat: %s", pathname);
+  logwrapper((char*)__FUNCTION__, pathname);
   // minimal stat : only size and times are filled
   // atime, mtime and ctime are set all to the same value
   // mode is set arbitrarily to 0666 | S_IFREG
@@ -1262,20 +1263,20 @@ int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
   return rc;
 }
 /**
- * brief: Return the amount of space used in a pool
- * details: This function
+ * @brief Return the amount of space used in a pool
+ * @details This function -
  *   Obtains the statistics that librados holds on a pool
  *   Calculates the number of bytes allocated to the pool
- * params:
+ * @params
  *   poolName: (in) the name of the pool to query
  *   usedSpace: (out) the number of bytes used in the pool
- * return: 
- *   success or error status
+ * @return 
+ *   success or failure status
  *
  */
 int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
 
-  logwrapper((char*)"ceph_posix_stat_pool");
+  logwrapper((char*)__FUNCTION__);
   // get the poolIdx to use
   int cephPoolIdx = getCephPoolIdxAndIncrease();
   librados::Rados* cluster = checkAndCreateCluster(cephPoolIdx);
@@ -1288,12 +1289,12 @@ int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
 
   if (cluster->get_pool_stats(poolNames, stat) < 0) {
 
-    return 1; // Should be -EINVAL?
+    return -EINVAL; 
 
   } else {
  
     *usedSpace = stat[poolName].num_kb * 1024;
-    return 0;
+    return XrdOssOK;
 
   }
 }
