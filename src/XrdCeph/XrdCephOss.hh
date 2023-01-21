@@ -79,7 +79,6 @@ public:
     bool m_configReadVEnable=false; //! enable readV decorator
     std::string m_configReadVAlgName="passthrough"; // readV algorithm type
     std::string m_configPoolnames;
-    bool pathIsReportablePool(const char *path);
 };
 
 #endif /* __CEPH_OSS_HH__ */

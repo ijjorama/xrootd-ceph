@@ -235,14 +235,6 @@ int XrdCephOss::Rename(const char *from,
   return -ENOTSUP;
 }
 
-bool XrdCephOss::pathIsReportablePool(const char *path) {
-
-   std::string trimmedPath(path);
-   trimmedPath.pop_back(); // Remove trainling colon ':' for validating path as pool name
-   return m_configPoolnames.find(trimmedPath) != std::string::npos;
-
-}
-
 int XrdCephOss::Stat(const char* path,
                   struct stat* buff,
                   int opts,
