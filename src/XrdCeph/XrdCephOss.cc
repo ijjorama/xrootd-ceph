@@ -235,13 +235,21 @@ int XrdCephOss::Rename(const char *from,
   return -ENOTSUP;
 }
 
+bool XrdCephOss::pathIsReportablePool(const char *path) {
+
+   std::string trimmedPath(path);
+   trimmedPath.pop_back(); // Remove trainling colon ':' for validating path as pool name
+   return m_configPoolnames.find(trimmedPath) != std::string::npos;
+
+}
+
 int XrdCephOss::Stat(const char* path,
                   struct stat* buff,
                   int opts,
                   XrdOucEnv* env) {
 
   std::string trimmedPath(path);
-  trimmedPath.pop_back(); // Remove trainling colon ':' for validating path as pool name
+  trimmedPath.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
 
   try {
     if (!strcmp(path, "/")) {
@@ -251,8 +259,7 @@ int XrdCephOss::Stat(const char* path,
       buff->st_mode = S_IFDIR | 0700;
       return XrdOssOK;
     
-    } else if (m_configPoolnames.find(trimmedPath) != std::string::npos) { // Support spaceinfo command
-
+    } else if (m_configPoolnames.find(trimmedPath) != std::string::npos)  { // Support 'locate' for spaceinfo
 #ifdef STAT_TRACE  
       XrdCephEroute.Say("Stat - Disk spaceinfo report for ", path);
 #endif
@@ -304,28 +311,27 @@ int formatStatLSResponse(char *buff, int &blen, const char* cgroup, long long to
                                      cgroup,       totalSpace,    freeSpace,    maxFreeChunk, usedSpace,    quota);
 }
 
-int XrdCephOss::StatLS(XrdOucEnv &env, const char *pool, char *buff, int &blen)
+int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
 {
 #ifdef STAT_TRACE
-  XrdCephEroute.Say("StatLS - Disk space report for ", pool);  
+  XrdCephEroute.Say("StatLS - Disk space report for ", path);  
 #endif
-  std::string strPool(pool);
-  strPool.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
+  std::string trimmedPath(path);
+  trimmedPath.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
 
-  if (m_configPoolnames.find(strPool) == std::string::npos) {
-    XrdCephEroute.Say("Can't report on ", pool);
+  if (m_configPoolnames.find(trimmedPath) == std::string::npos) {
+    XrdCephEroute.Say("Can't report on ", path);
     return -EINVAL;
   }
 
   long long usedSpace, totalSpace, freeSpace;
 
-  if (ceph_posix_stat_pool(strPool.c_str(), &usedSpace) != 0) {
+  if (ceph_posix_stat_pool(trimmedPath.c_str(), &usedSpace) != 0) {
       return -EINVAL;
   }
 
-  // Add back the trailing colon for creating the object path
-  std::string spaceInfoPath =  strPool + ":" + (const char *)"__spaceinfo__";
-
+  // Construct the object path
+  std::string spaceInfoPath =  trimmedPath + ":" +  (const char *)"__spaceinfo__";
   totalSpace = getNumericAttr(spaceInfoPath.c_str(), "total_space", 24);
   if (totalSpace < 0) {
     XrdCephEroute.Say("Could not get 'total_space' attribute from ", spaceInfoPath.c_str());
@@ -339,7 +345,7 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *pool, char *buff, int &blen)
 
   freeSpace = totalSpace - usedSpace;
   blen = formatStatLSResponse(buff, blen, 
-    pool,  /* "oss.cgroup" */ 
+    path,       /* "oss.cgroup" */ 
     totalSpace, /* "oss.space"  */
     usedSpace,  /* "oss.used"   */
     freeSpace,  /* "oss.free"   */
