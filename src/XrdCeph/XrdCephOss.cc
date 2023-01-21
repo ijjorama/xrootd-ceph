@@ -46,11 +46,19 @@ XrdVERSIONINFO(XrdOssGetStorageSystem, XrdCephOss);
 XrdSysError XrdCephEroute(0);
 XrdOucTrace XrdCephTrace(&XrdCephEroute);
 
+/// timestamp output for logging messages
+static std::string ts() {
+    std::time_t t = std::time(nullptr);
+    char mbstr[50];
+    std::strftime(mbstr, sizeof(mbstr), "%y%m%d %H:%M:%S ", std::localtime(&t));
+    return std::string(mbstr);
+}
+
 // log wrapping function to be used by ceph_posix interface
 char g_logstring[1024];
-static void logwrapper(char* format, va_list argp) {
+static void logwrapper(char *format, va_list argp) {
   vsnprintf(g_logstring, 1024, format, argp);
-  XrdCephEroute.Say(g_logstring);
+  XrdCephEroute.Say(ts().c_str(), g_logstring);
 }
 
 /// pointer to library providing Name2Name interface. 0 be default
@@ -60,29 +68,29 @@ extern XrdOucName2Name *g_namelib;
 
 ssize_t getNumericAttr(const char* const path, const char* attrName, const int maxAttrLen)
 {
-
+  ssize_t retval;
   char *attrValue = (char*)malloc(maxAttrLen+1);
-  char *newPath = (char *)malloc(strlen(path)+1);
-
-  strcpy(newPath, path);	// Save this away as ceph_posix_getxattr appears to wipe 'path'!
-
-  ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, newPath, attrName, attrValue, maxAttrLen);
-
-  if (attrLen <= 0) {
-    XrdCephEroute.Say("Negative return value from ceph_posix_getxattr");
+  if (NULL == attrValue) {
+    return ENOMEM;
   }
-  XrdCephEroute.Say(__FUNCTION__, " After ceph_posix_getxattr, path is now ", path);
+  ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
+
   if (attrLen <= 0) {
-
-    return -EINVAL;
-
+    retval = -EINVAL;
   } else {
 
     attrValue[attrLen] = (char)NULL;
     char *endPointer = (char *)NULL;
-    return strtoll(attrValue, &endPointer, 10);
+    retval = strtoll(attrValue, &endPointer, 10);
 
   }
+
+  if (NULL != attrValue) {
+    free(attrValue);
+  }
+  
+  return retval;
+
 }
 
 extern "C"
@@ -232,17 +240,26 @@ int XrdCephOss::Stat(const char* path,
                   int opts,
                   XrdOucEnv* env) {
 
-  XrdCephEroute.Say("Entering Stat");
+  std::string trimmedPath(path);
+  trimmedPath.pop_back(); // Remove trainling colon ':' for validating path as pool name
+
   try {
     if (!strcmp(path, "/")) {
       // special case of a stat made by the locate interface
-      // we intend to then list all files
+      // we intend to then list all files - Really?
       memset(buff, 0, sizeof(*buff));
       buff->st_mode = S_IFDIR | 0700;
-      return 0;
+      return XrdOssOK;
     
+    } else if (m_configPoolnames.find(trimmedPath) != std::string::npos) { // Support spaceinfo command
+
+#ifdef STAT_TRACE  
+      XrdCephEroute.Say("Stat - Disk spaceinfo report for ", path);
+#endif
+      return XrdOssOK;
+
     } else {
-      return ceph_posix_stat(env, path, buff);
+        return ceph_posix_stat(env, path, buff);
     }
   } catch (std::exception &e) {
     XrdCephEroute.Say("stat : invalid syntax in file parameters");
@@ -266,7 +283,9 @@ int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
 
 int XrdCephOss::StatVS(XrdOssVSInfo *sP, const char *sname, int updt) {
 
+#ifdef STAT_TRACE
   XrdCephEroute.Say("Entering StatVS");
+#endif
   int rc = ceph_posix_statfs(&(sP->Total), &(sP->Free));
   if (rc) {
     return rc;
@@ -285,38 +304,31 @@ int formatStatLSResponse(char *buff, int &blen, const char* cgroup, long long to
                                      cgroup,       totalSpace,    freeSpace,    maxFreeChunk, usedSpace,    quota);
 }
 
-const char *createAttrPath(const char *pool, const char *attrName) 
-{
-  return (std::string(pool) + std::string(attrName)).c_str();
-}
-
 int XrdCephOss::StatLS(XrdOucEnv &env, const char *pool, char *buff, int &blen)
 {
-  std::string stdPool(pool);
-  stdPool.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
-  XrdCephEroute.Say("Pool for disk space reporting is ", pool);
+#ifdef STAT_TRACE
+  XrdCephEroute.Say("StatLS - Disk space report for ", pool);  
+#endif
+  std::string strPool(pool);
+  strPool.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
 
-  if (m_configPoolnames.find(stdPool) == std::string::npos) {
+  if (m_configPoolnames.find(strPool) == std::string::npos) {
     XrdCephEroute.Say("Can't report on ", pool);
-    return -EPERM;
+    return -EINVAL;
   }
 
   long long usedSpace, totalSpace, freeSpace;
 
-  if (ceph_posix_stat_pool(stdPool.c_str(), &usedSpace) != 0) {
+  if (ceph_posix_stat_pool(strPool.c_str(), &usedSpace) != 0) {
       return -EINVAL;
   }
-  
-  const char *spaceInfoPath = createAttrPath(pool, (const char *)"__spaceinfo__");
 
-  char *newPath = (char *)malloc(strlen(spaceInfoPath)+1);
-  strcpy(newPath, spaceInfoPath);
+  // Add back the trailing colon for creating the object path
+  std::string spaceInfoPath =  strPool + ":" + (const char *)"__spaceinfo__";
 
-  totalSpace = getNumericAttr(newPath, "total_space", 24);
-  XrdCephEroute.Say("after getNumericAttr, spaceInfoPath = ", spaceInfoPath);
-  XrdCephEroute.Say("after getNumericAttr, newPath = ", newPath);
+  totalSpace = getNumericAttr(spaceInfoPath.c_str(), "total_space", 24);
   if (totalSpace < 0) {
-    XrdCephEroute.Say("Could not get 'total_space' attribute from ", newPath);
+    XrdCephEroute.Say("Could not get 'total_space' attribute from ", spaceInfoPath.c_str());
     return -EINVAL;
   }
 
@@ -327,7 +339,7 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *pool, char *buff, int &blen)
 
   freeSpace = totalSpace - usedSpace;
   blen = formatStatLSResponse(buff, blen, 
-    "default",  /* "oss.cgroup" */ 
+    pool,  /* "oss.cgroup" */ 
     totalSpace, /* "oss.space"  */
     usedSpace,  /* "oss.used"   */
     freeSpace,  /* "oss.free"   */
