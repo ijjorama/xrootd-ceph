@@ -246,7 +246,9 @@ int XrdCephOss::Stat(const char* path,
   try {
     if (!strcmp(path, "/")) {
       // special case of a stat made by the locate interface
-      // we intend to then list all files - Really?
+      // we intend to then list all files 
+      // Needed for e.g. FTS, which will stat the first character ('/') of a path
+      // before stat-ing the full pathname 
       memset(buff, 0, sizeof(*buff));
       buff->st_mode = S_IFDIR | 0700;
       return XrdOssOK;
@@ -255,7 +257,7 @@ int XrdCephOss::Stat(const char* path,
 #ifdef STAT_TRACE  
       XrdCephEroute.Say("Stat - Disk spaceinfo report for ", path);
 #endif
-      return XrdOssOK;
+      return XrdOssOK; // Only requires a status code, do not need to fill contents in struct stat
 
     } else {
         return ceph_posix_stat(env, path, buff);
