@@ -71,7 +71,7 @@ ssize_t getNumericAttr(const char* const path, const char* attrName, const int m
   ssize_t retval;
   char *attrValue = (char*)malloc(maxAttrLen+1);
   if (NULL == attrValue) {
-    return ENOMEM;
+    return -EINVAL;
   }
   ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
 
