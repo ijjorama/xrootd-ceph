@@ -68,21 +68,20 @@ extern XrdOucName2Name *g_namelib;
 
 ssize_t getNumericAttr(const char* const path, const char* attrName, const int maxAttrLen)
 {
+
   ssize_t retval;
   char *attrValue = (char*)malloc(maxAttrLen+1);
   if (NULL == attrValue) {
-    return -EINVAL;
+    return -ENOMEM;
   }
   ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
 
   if (attrLen <= 0) {
     retval = -EINVAL;
   } else {
-
     attrValue[attrLen] = (char)NULL;
     char *endPointer = (char *)NULL;
     retval = strtoll(attrValue, &endPointer, 10);
-
   }
 
   if (NULL != attrValue) {
