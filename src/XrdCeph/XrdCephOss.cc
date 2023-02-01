@@ -182,13 +182,13 @@ int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
          }
        }
 
-       if (!strcmp(var, "ceph.poolnames")) {
+       if (!strcmp(var, "ceph.reportingpools")) {
          var = Config.GetWord();
          if (var) {
            m_configPoolnames = var;
-           Eroute.Say("Poolnames are ", m_configPoolnames.c_str());
+           Eroute.Say("Reporting pools are ", m_configPoolnames.c_str());
          } else {
-           Eroute.Emsg("Config", "Missing value for ceph.poolnames in config file", configfn);
+           Eroute.Emsg("Config", "Missing value for ceph.reportingpools in config file", configfn);
            return 1; 
          }
        }       
@@ -320,6 +320,7 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
   long long usedSpace, totalSpace, freeSpace;
 
   if (ceph_posix_stat_pool(trimmedPath.c_str(), &usedSpace) != 0) {
+      XrdCephEroute.Say("Failed to get used space in pool ", trimmedPath.c_str());
       return -EINVAL;
   }
 
