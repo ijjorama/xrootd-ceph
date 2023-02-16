@@ -1276,7 +1276,7 @@ int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
  */
 int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
 
-  logwrapper((char*)__FUNCTION__);
+  logwrapper((char*)__FUNCTION__, poolName);
   // get the poolIdx to use
   int cephPoolIdx = getCephPoolIdxAndIncrease();
   librados::Rados* cluster = checkAndCreateCluster(cephPoolIdx);
