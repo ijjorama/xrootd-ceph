@@ -62,7 +62,7 @@ bool allCharsAlnum(std::string candidate) {
 string sanitizePath(const char *path) {
 
   std::string sPath(path);
-  if (sPath.front() == '/') {
+  if (sPath.front() == '/' && sPath.length() > 1) {
     sPath.erase(0, 1);
   }
 
@@ -222,7 +222,6 @@ int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
          var = Config.GetWord();
          if (var) {
            m_configPoolnames = var;
-           Eroute.Say("Reporting pools are ", m_configPoolnames.c_str());
          } else {
            Eroute.Emsg("Config", "Missing value for ceph.reportingpools in config file", configfn);
            return 1; 
@@ -274,12 +273,21 @@ int XrdCephOss::Stat(const char* path,
                   struct stat* buff,
                   int opts,
                   XrdOucEnv* env) {
+#ifdef STAT_TRACE
+  XrdCephEroute.Say(__FUNCTION__, " path = ", path);
+#endif
+
 // TO-DO
-  std::string trimmedPath(path);
-  trimmedPath.pop_back(); // Remove trailing colon ':' for comparison against list of pool names
+  std::string trimmedPath = sanitizePath(path);
 
   try {
+    if (trimmedPath.empty()) {
+      throw std::runtime_error("Invalid pool name");
+    }
     if (!strcmp(path, "/")) {
+#ifdef STAT_TRACE
+      XrdCephEroute.Say(__FUNCTION__, "Trying to stat '/' - FTS?");
+#endif
       // special case of a stat made by the locate interface
       // we intend to then list all files 
       // Needed for e.g. FTS, which will stat the first character ('/') of a path
@@ -295,6 +303,9 @@ int XrdCephOss::Stat(const char* path,
       return XrdOssOK; // Only requires a status code, do not need to fill contents in struct stat
 
     } else {
+#ifdef STAT_TRACE
+        XrdCephEroute.Say(__FUNCTION__, " passing to ceph_posix_stat... ");
+#endif
         return ceph_posix_stat(env, path, buff);
     }
   } catch (std::exception &e) {
@@ -304,8 +315,10 @@ int XrdCephOss::Stat(const char* path,
 }
 
 int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
-  
-  XrdCephEroute.Say("Entering StatFS");
+
+#ifdef STAT_TRACE  
+  XrdCephEroute.Say(__FUNCTION__, " path = ", path);
+#endif
   XrdOssVSInfo sP;
   int rc = StatVS(&sP, 0, 0);
   if (rc) {
@@ -320,7 +333,7 @@ int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
 int XrdCephOss::StatVS(XrdOssVSInfo *sP, const char *sname, int updt) {
 
 #ifdef STAT_TRACE
-  XrdCephEroute.Say("Entering StatVS", sname);
+  XrdCephEroute.Say(__FUNCTION__, " path = ", sname);
 #endif
   int rc = ceph_posix_statfs(&(sP->Total), &(sP->Free));
   if (rc) {
@@ -343,11 +356,12 @@ int formatStatLSResponse(char *buff, int &blen, const char* cgroup, long long to
 int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
 {
 #ifdef STAT_TRACE
-  XrdCephEroute.Say("StatLS - Disk space report for ", path);  
+  XrdCephEroute.Say(__FUNCTION__, " path = ", path);  
 #endif
   std::string trimmedPath = sanitizePath(path);
+#ifdef STAT_TRACE
   XrdCephEroute.Say("Sanitized path = ", trimmedPath.c_str());
-
+#endif
   if (m_configPoolnames.find(trimmedPath) == std::string::npos) {
     XrdCephEroute.Say("Can't report on ", path);
     return -EINVAL;
@@ -369,7 +383,7 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
   }
 
 //
-// Figure for 'usedSpace' accounts for Erasure Coding overhead
+// Figure for 'usedSpace' already accounts for Erasure Coding overhead
 //
 
 
@@ -381,7 +395,9 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
     freeSpace,  /* "oss.free"   */
     totalSpace, /* "oss.quota"  */
     freeSpace   /* "oss.maxf"   */);
-
+#ifdef STAT_TRACE
+  XrdCephEroute.Say(__FUNCTION__, "space info = \n", buff);
+#endif
   return XrdOssOK;
 
 }
