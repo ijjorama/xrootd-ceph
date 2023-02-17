@@ -359,6 +359,11 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
   XrdCephEroute.Say(__FUNCTION__, " path = ", path);  
 #endif
   std::string trimmedPath = sanitizePath(path);
+
+  if (trimmedPath.empty()) {
+    XrdCephEroute.Say("Can't report on ", path);
+    return -EINVAL;
+  }
 #ifdef STAT_TRACE
   XrdCephEroute.Say("Sanitized path = ", trimmedPath.c_str());
 #endif
