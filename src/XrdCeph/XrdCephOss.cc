@@ -46,42 +46,6 @@ XrdVERSIONINFO(XrdOssGetStorageSystem, XrdCephOss);
 XrdSysError XrdCephEroute(0);
 XrdOucTrace XrdCephTrace(&XrdCephEroute);
 
-bool allCharsAlnum(std::string candidate) {
-
-  bool retval = true;
-  for (auto it = candidate.cbegin(); it != candidate.cend(); ++it) {
-    if (!isalnum(*it)) {
-      retval = false;
-      break;
-    }
-  }
-  return retval;
-
-}
-
-string sanitizePath(const char *path) {
-
-  std::string sPath(path);
-  if (sPath.front() == '/' && sPath.length() > 1) {
-    sPath.erase(0, 1);
-  }
-
-  auto lastPos = sPath.length()-1;
-
-  if (sPath[lastPos] != ':') {
-    sPath.clear();
-    return sPath;
-  }
-
-  sPath.erase(lastPos, 1);
-
-
-  if (allCharsAlnum(sPath) == false) {
-    sPath.clear();
-  }
-  return sPath;
-
-}
 /// timestamp output for logging messages
 static std::string ts() {
     std::time_t t = std::time(nullptr);
@@ -102,6 +66,28 @@ static void logwrapper(char *format, va_list argp) {
 /// used in XrdCephPosix
 extern XrdOucName2Name *g_namelib;
 
+//
+// To-do: find the include file defining MAXPATHLEN
+//
+#define MAXPATHLEN 4096
+
+/// converts a logical filename to physical one if needed
+void m_translateFileName(std::string &physName, std::string logName){
+  if (0 != g_namelib) {
+    char physCName[MAXPATHLEN+1];
+    int retc = g_namelib->lfn2pfn(logName.c_str(), physCName, sizeof(physCName));
+    if (retc) {
+      XrdCephEroute.Say(__FUNCTION__, " - failed to translate '", logName.c_str(), "' using namelib plugin, using it as is");
+      physName = logName;
+    } else {
+      XrdCephEroute.Say(__FUNCTION__, " - translated '", logName.c_str(), "' to '", physCName, "'");
+      physName = physCName; // Data on stack?
+    }
+  } else {
+    physName = logName;
+  }
+}
+
 ssize_t getNumericAttr(const char* const path, const char* attrName, const int maxAttrLen)
 {
 
@@ -110,6 +96,7 @@ ssize_t getNumericAttr(const char* const path, const char* attrName, const int m
   if (NULL == attrValue) {
     return -ENOMEM;
   }
+
   ssize_t attrLen = ceph_posix_getxattr((XrdOucEnv*)NULL, path, attrName, attrValue, maxAttrLen);
 
   if (attrLen <= 0) {
@@ -277,42 +264,55 @@ int XrdCephOss::Stat(const char* path,
   XrdCephEroute.Say(__FUNCTION__, " path = ", path);
 #endif
 
-// TO-DO
-  std::string trimmedPath = sanitizePath(path);
 
-  try {
-    if (trimmedPath.empty()) {
-      throw std::runtime_error("Invalid pool name");
-    }
-    if (!strcmp(path, "/")) {
+  std::string spath {path};
+  m_translateFileName(spath,path);
+
 #ifdef STAT_TRACE
-      XrdCephEroute.Say(__FUNCTION__, "Trying to stat '/' - FTS?");
+  XrdCephEroute.Say(__FUNCTION__, " - translated path = ", spath.c_str());
 #endif
-      // special case of a stat made by the locate interface
-      // we intend to then list all files 
-      // Needed for e.g. FTS, which will stat the first character ('/') of a path
-      // before stat-ing the full pathname 
-      memset(buff, 0, sizeof(*buff));
-      buff->st_mode = S_IFDIR | 0700;
-      return XrdOssOK;
+
+  if (spath.back() == '/') { // Request to stat the root 
+#ifdef STAT_TRACE
+    XrdCephEroute.Say(__FUNCTION__, " - fake a return for root element '/' - FTS?");
+#endif
+    // special case of a stat made by the locate interface
+    // we intend to then list all files 
+    // Possibly needed for FTS, which will stat the first character '/' of a path
+    // before stat-ing the full pathname
     
-    } else if (m_configPoolnames.find(trimmedPath) != std::string::npos)  { // Support 'locate' for spaceinfo
+    memset(buff, 0, sizeof(*buff));
+    buff->st_mode = S_IFDIR | 0700;
+    return XrdOssOK;
+   
+  } 
+
+  if (spath.find_first_of(":") == spath.length()-1) { // Request to stat just the pool name
+
+#ifdef STAT_TRACE
+    XrdCephEroute.Say(__FUNCTION__, "Found request to stat pool name");
+#endif
+
+    spath.pop_back(); // remove colon from pool name
+    if (m_configPoolnames.find(spath) != std::string::npos)  { // Support 'locate' for spaceinfo
 #ifdef STAT_TRACE  
-      XrdCephEroute.Say("Stat - 'locate' preparing disk spaceinfo report for ", path);
+      XrdCephEroute.Say(__FUNCTION__, " - preparing spaceinfo report for '", path, "'");
 #endif
       return XrdOssOK; // Only requires a status code, do not need to fill contents in struct stat
-
     } else {
-#ifdef STAT_TRACE
-        XrdCephEroute.Say(__FUNCTION__, " passing to ceph_posix_stat... ");
-#endif
-        return ceph_posix_stat(env, path, buff);
+      XrdCephEroute.Say(__FUNCTION__, " - cannot find pool '", path, "' in ceph.reportingpools");
+      return -EINVAL;
     }
-  } catch (std::exception &e) {
-    XrdCephEroute.Say("stat : invalid syntax in file parameters");
-    return -EINVAL;
-  }
+
+  } else {
+#ifdef STAT_TRACE
+    XrdCephEroute.Say(__FUNCTION__, " passing to ceph_posix_stat... ");
+#endif
+    return ceph_posix_stat(env, path, buff);
+  }  
 }
+
+
 
 int XrdCephOss::StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP) {
 
@@ -358,29 +358,26 @@ int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
 #ifdef STAT_TRACE
   XrdCephEroute.Say(__FUNCTION__, " path = ", path);  
 #endif
-  std::string trimmedPath = sanitizePath(path);
+  std::string spath {path};
+  m_translateFileName(spath,path);
 
-  if (trimmedPath.empty()) {
-    XrdCephEroute.Say("Can't report on ", path);
-    return -EINVAL;
+  if (spath.back() == ':') {
+    spath.pop_back();
   }
-#ifdef STAT_TRACE
-  XrdCephEroute.Say("Sanitized path = ", trimmedPath.c_str());
-#endif
-  if (m_configPoolnames.find(trimmedPath) == std::string::npos) {
+  if (m_configPoolnames.find(spath) == std::string::npos) {
     XrdCephEroute.Say("Can't report on ", path);
     return -EINVAL;
   }
 
   long long usedSpace, totalSpace, freeSpace;
 
-  if (ceph_posix_stat_pool(trimmedPath.c_str(), &usedSpace) != 0) {
-      XrdCephEroute.Say("Failed to get used space in pool ", trimmedPath.c_str());
+  if (ceph_posix_stat_pool(spath.c_str(), &usedSpace) != 0) {
+      XrdCephEroute.Say("Failed to get used space in pool ", spath.c_str());
       return -EINVAL;
   }
 
   // Construct the object path
-  std::string spaceInfoPath =  trimmedPath + ":" +  (const char *)"__spaceinfo__";
+  std::string spaceInfoPath =  spath + ":" +  (const char *)"__spaceinfo__";
   totalSpace = getNumericAttr(spaceInfoPath.c_str(), "total_space", 24);
   if (totalSpace < 0) {
     XrdCephEroute.Say("Could not get 'total_space' attribute from ", spaceInfoPath.c_str());
