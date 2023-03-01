@@ -81,7 +81,7 @@ void m_translateFileName(std::string &physName, std::string logName){
       physName = logName;
     } else {
       XrdCephEroute.Say(__FUNCTION__, " - translated '", logName.c_str(), "' to '", physCName, "'");
-      physName = physCName; // Data on stack?
+      physName = physCName;
     }
   } else {
     physName = logName;
@@ -274,12 +274,10 @@ int XrdCephOss::Stat(const char* path,
 
   if (spath.back() == '/') { // Request to stat the root 
 #ifdef STAT_TRACE
-    XrdCephEroute.Say(__FUNCTION__, " - fake a return for root element '/' - FTS?");
+    XrdCephEroute.Say(__FUNCTION__, " - fake a return for stat'ing root element '/'");
 #endif
     // special case of a stat made by the locate interface
     // we intend to then list all files 
-    // Possibly needed for FTS, which will stat the first character '/' of a path
-    // before stat-ing the full pathname
     
     memset(buff, 0, sizeof(*buff));
     buff->st_mode = S_IFDIR | 0700;
