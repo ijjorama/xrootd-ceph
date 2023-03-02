@@ -88,6 +88,20 @@ void m_translateFileName(std::string &physName, std::string logName){
   }
 }
 
+/**
+ * Get an integer numeric value from an extended attribute attached to an object
+ *
+ * @brief Retrieve an integer-value extended attribute.
+ * @param path the object ID containing the attribute
+ * @param attrName the name of the attribute to retrieve
+ * @param maxAttrLen the largest number of characters to handle
+ * @return value of the attibute, -EINVAL if not valid integer, or -ENOMEM
+ *
+ * Implementation:
+ * Ian Johnson, ian.johnson@stfc.ac.uk, 2022
+ *
+ */
+
 ssize_t getNumericAttr(const char* const path, const char* attrName, const int maxAttrLen)
 {
 
@@ -255,22 +269,35 @@ int XrdCephOss::Rename(const char *from,
                     XrdOucEnv *eP2) {
   return -ENOTSUP;
 }
-#define STAT_TRACE
+
+/**
+ *
+ * Populate a struct stat* with information on an object ID.
+ * Determine whether the request relates to a pool name for disk space reporting via
+ * StatLS. If not, handle an object path or the notional root element "/"
+ *
+ * @brief Return status information for an object ID.
+ * @param (in) path the object ID
+ * @param (out) buff receive the status information
+ * @param (in) opts not used
+ * @param (in) env not used
+ * 
+ * Implementation of enhancements:
+ * Jyothish Thomas	STFC RAL, jyothish.thomas@stfc.ac.uk, 2022
+ * Ian Johnson		STFC RAL, ian.johnson@stfc.ac.uk, 2022, 2023
+ * 
+ */
+
+
 int XrdCephOss::Stat(const char* path,
                   struct stat* buff,
                   int opts,
                   XrdOucEnv* env) {
-#ifdef STAT_TRACE
+  
   XrdCephEroute.Say(__FUNCTION__, " path = ", path);
-#endif
-
 
   std::string spath {path};
   m_translateFileName(spath,path);
-
-#ifdef STAT_TRACE
-  XrdCephEroute.Say(__FUNCTION__, " - translated path = ", spath.c_str());
-#endif
 
   if (spath.back() == '/') { // Request to stat the root 
 #ifdef STAT_TRACE
@@ -351,11 +378,26 @@ int formatStatLSResponse(char *buff, int &blen, const char* cgroup, long long to
                                      cgroup,       totalSpace,    freeSpace,    maxFreeChunk, usedSpace,    quota);
 }
 
+/**
+ *
+ * Handle a request for the amount of space used in a Ceph pool
+ * 
+ * @brief Report on disk space use in this pool.
+ * @param (in) env not used
+ * @param (in) path name of the pool
+ * @param (out) buff location for string containing OSS key-value pairs for disk space used, free, etc
+ * @param (out) blen set to length of buff
+ *
+ * Implementation:
+ * Jyothish Thomas	STFC RAL, jyothish.thomas@stfc.ac.uk, 2022
+ * Ian Johnson		STFC RAL, ian.johnson@stfc.ac.uk, 2022, 2023
+ *
+ */
+
+
 int XrdCephOss::StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen)
 {
-#ifdef STAT_TRACE
   XrdCephEroute.Say(__FUNCTION__, " path = ", path);  
-#endif
   std::string spath {path};
   m_translateFileName(spath,path);
 

@@ -1262,8 +1262,10 @@ int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
   }
   return rc;
 }
+
 /**
- * @brief Return the amount of space used in a pool
+ *
+ * @brief Return the amount of space used in a pool.
  * @details This function -
  *   Obtains the statistics that librados holds on a pool
  *   Calculates the number of bytes allocated to the pool
@@ -1273,7 +1275,12 @@ int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
  * @return 
  *   success or failure status
  *
+ * Implementation:
+ * Jyothish Thomas	STFC RAL, jyothish.thomas@stfc.ac.uk, 2022
+ * Ian Johnson		STFC RAL, ian.johnson@stfc.ac.uk, 2022, 2023
+ *
  */
+
 int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
 
   logwrapper((char*)__FUNCTION__, poolName);
@@ -1289,6 +1296,7 @@ int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
 
   if (cluster->get_pool_stats(poolNames, stat) < 0) {
 
+    logwrapper((char*)"Unable to get_pool_stats for pool ", poolName);
     return -EINVAL; 
 
   } else {
