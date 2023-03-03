@@ -239,10 +239,8 @@ if test $? -ne 0; then
   echo "[!] Unable to create the source tarball" 1>&2
   exit 6
 fi
-echo "Copying$RPMSOURCES/${RPM_NAME}.tar.gz to ${OUTPUTPATH}
+echo "Copying $RPMSOURCES/${RPM_NAME}.tar.gz to ${OUTPUTPATH}"
 cp -f  $RPMSOURCES/${RPM_NAME}.tar.gz  ${OUTPUTPATH} 
-iexit $?
-
 
 cd $CWD
 
