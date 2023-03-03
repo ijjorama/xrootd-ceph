@@ -1244,7 +1244,7 @@ void ceph_posix_freexattrlist(XrdSysXAttr::AList *aPL) {
   }
 }
 
-int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
+int ceph_posix_statfs(long long *totalSpace, long long *freeSpace) {
   logwrapper((char*)"ceph_posix_statfs");
   // get the poolIdx to use
   int cephPoolIdx = getCephPoolIdxAndIncrease();
@@ -1257,7 +1257,7 @@ int ceph_posix_statfs(long long *usedSpace, long long *freeSpace) {
   librados::cluster_stat_t result;
   int rc = cluster->cluster_stat(result);
   if (0 == rc) {
-    *usedSpace = result.kb * 1024;
+    *totalSpace = result.kb * 1024;
     *freeSpace = result.kb_avail * 1024;
   }
   return rc;
